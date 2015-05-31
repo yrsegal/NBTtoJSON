@@ -18,18 +18,12 @@ import gzip, zlib
 from cStringIO import StringIO
 import struct
 
-class bytearray:
-	def __init__(self, object, copy=True, order=None, subok=False, ndmin=0):
-		self = array()
-		self.__init__(object, dtype=byte, copy=copy, order=order, subok=subok, ndmin=ndmin)
-class intarray:
-	def __init__(self, object, copy=True, order=None, subok=False, ndmin=0):
-		self = array()
-		self.__init__(object, dtype=cint, copy=copy, order=order, subok=subok, ndmin=ndmin)
-class shortarray:
-	def __init__(self, object, copy=True, order=None, subok=False, ndmin=0):
-		self = array()
-		self.__init__(object, dtype=short, copy=copy, order=order, subok=subok, ndmin=ndmin)
+def bytearray(object, copy=True, order=None, subok=False, ndmin=0):
+	return array(object, dtype='uint8', copy=copy, order=order, subok=subok, ndmin=ndmin)
+def intarray(object, copy=True, order=None, subok=False, ndmin=0):
+	return array(object, dtype='>u4', copy=copy, order=order, subok=subok, ndmin=ndmin)
+def shortarray(array, object, copy=True, order=None, subok=False, ndmin=0):
+	return array(object, dtype='>u2', copy=copy, order=order, subok=subok, ndmin=ndmin)
 
 TYPES = {
 	1: byte,
@@ -74,8 +68,7 @@ def try_gunzip(data):
 		pass
 	return data
 
-def _serialize(ctx):
-	tag_type = ctx.data[ctx.offset]
+def _serialize(tag_type, ctx):
 	returnval = None
 	if tag_type > 0 and tag_type < 7:
 		data = ctx.data[ctx.offset:]
@@ -87,7 +80,7 @@ def _serialize(ctx):
 		data = ctx.data[ctx.offset:]
 		fmt = STRUCTS[tag_type]
 		(string_len,) = fmt.unpack_from(data)
-		value = fromstring(data[4:string_len * cls.dtype.itemsize + 4], DTYPES[tag_type])
+		value = fromstring(data[4:string_len * DTYPES[tag_type].itemsize + 4], DTYPES[tag_type])
 		returnval = TYPES[tag_type](value)
 		ctx.offset += string_len * DTYPES[tag_type].itemsize + 4
 	elif tag_type == 8:
@@ -97,10 +90,10 @@ def _serialize(ctx):
 		ctx.offset += 1
 
 		(list_length,) = STRUCTS[3].unpack_from(ctx.data, ctx.offset)
-		ctx.offset += STRUCTS[3].fmt.size
+		ctx.offset += STRUCTS[3].size
 		returnval = []
 		for i in xrange(list_length):
-			tag = _serialize(ctx)
+			tag = _serialize(list_type,ctx)
 			returnval.append(tag)
 	elif tag_type == 10:
 		returnval = _NBTtoDict(ctx)
@@ -119,12 +112,11 @@ def _NBTtoDict(ctx):
 	while ctx.offset < len(ctx.data):
 		tag_type = ctx.data[ctx.offset]
 		ctx.offset += 1
-		print(tag_type)
 		if tag_type == 0:
 			break
 
 		name = load_string(ctx)
-		tag = _serialize(ctx)
+		tag = _serialize(tag_type, ctx)
 
 		obj[name] = tag
 	return obj
@@ -144,6 +136,8 @@ def _load(buf):
 	ctx = ctxobj()
 	ctx.offset = 1
 	ctx.data = data
+
+	name = load_string(ctx)
 
 	return _NBTtoDict(ctx)
 
