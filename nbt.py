@@ -13,7 +13,7 @@ from numpy import int32 as cint
 from numpy import int64 as clong
 from numpy import float32 as cfloat
 from numpy import float64 as double
-from numpy import array, dtype
+from numpy import array, dtype, ndarray
 import gzip, zlib
 from cStringIO import StringIO
 import struct
@@ -39,6 +39,12 @@ TYPES = {
 	11: intarray,
 	12: shortarray
 }
+ARRAYTYPES = {
+	'uint8': 7,
+	'uint32': 11,
+	'uint16': 12
+}
+INVTYPES = {v: k for k, v in TYPES.items()}
 
 STRUCTS = {
 	1: struct.Struct(">b"),
@@ -58,6 +64,11 @@ DTYPES = {
 	12:dtype('>u2')
 }
 
+def write_string(string, buf):
+	encoded = string
+
+	buf.write(struct.pack(">h%ds" % (len(encoded),), len(encoded), encoded))
+
 def gunzip(data):
 	return gzip.GzipFile(fileobj=StringIO(data)).read()
 
@@ -68,7 +79,36 @@ def try_gunzip(data):
 		pass
 	return data
 
-def _serialize(tag_type, ctx):
+def _serialize(data, buf):
+	if isinstance(data, int):
+		data = cint(data)
+	elif isinstance(data, float):
+		data = cfloat(data)
+	if type(data) in [byte, short, cint, clong, cfloat, double]:
+		buf.write(STRUCTS[INVTYPES[type(data)]].pack(data))
+	elif isinstance(data, str):
+		write_string(data, buf)
+	elif isinstance(data, list):
+		buf.write(chr(data[0]))
+		buf.write(STRUCTS[3].pack(len(data)-1))
+		for i in data[1:]:
+			_serialize(i, buf)
+	elif isinstance(data, dict):
+		for tag in data:
+			if isinstance(data[tag], ndarray):
+				buf.write(chr(ARRAYTYPES[data[tag].dtype.name]))
+			else:
+				buf.write(chr(INVTYPES[type(data[tag])]))
+			write_string(tag, buf)
+			_serialize(data[tag], buf)
+
+		buf.write(chr(0))
+	elif isinstance(data, ndarray):
+		value_str = data.tostring()
+		buf.write(struct.pack(">I%ds" % (len(value_str),), data.size, value_str))
+
+
+def _unpack(tag_type, ctx):
 	returnval = None
 	if tag_type > 0 and tag_type < 7:
 		data = ctx.data[ctx.offset:]
@@ -91,9 +131,9 @@ def _serialize(tag_type, ctx):
 
 		(list_length,) = STRUCTS[3].unpack_from(ctx.data, ctx.offset)
 		ctx.offset += STRUCTS[3].size
-		returnval = []
+		returnval = [list_type]
 		for i in xrange(list_length):
-			tag = _serialize(list_type,ctx)
+			tag = _unpack(list_type,ctx)
 			returnval.append(tag)
 	elif tag_type == 10:
 		returnval = _NBTtoDict(ctx)
@@ -116,13 +156,13 @@ def _NBTtoDict(ctx):
 			break
 
 		name = load_string(ctx)
-		tag = _serialize(tag_type, ctx)
+		tag = _unpack(tag_type, ctx)
 
 		obj[name] = tag
 	return obj
 
 class ctxobj(object):
-    pass
+	pass
 
 
 def _load(buf):
@@ -141,7 +181,20 @@ def _load(buf):
 
 	return _NBTtoDict(ctx)
 
+def save(data, compressed=True):
+	buf = StringIO()
+	buf.write(chr(10))
+	write_string("", buf)
+	_serialize(data, buf)
+	outdata = buf.getvalue()
 
+	if compressed:
+		gzio = StringIO()
+		gz = gzip.GzipFile(fileobj=gzio, mode='wb')
+		gz.write(outdata)
+		gz.close()
+		outdata = gzio.getvalue()
+	return outdata
 
 def load(buf):
 	"""Get a dict object from a NBT string."""
