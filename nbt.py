@@ -2,7 +2,6 @@
 Library for editing Named Binary Tag (NBT) files.
 Based on the work of codewarrior0, creator of MCEdit.
 Can convert raw NBT data to JSON, and vice versa.
-
 by Wire Segal
 """
 
@@ -15,7 +14,7 @@ from numpy import float32 as cfloat
 from numpy import float64 as double
 from numpy import array, dtype, ndarray
 import gzip, zlib
-from cStringIO import StringIO
+from io import StringIO,BytesIO
 import struct
 
 def bytearray(object, copy=True, order=None, subok=False, ndmin=0):
@@ -70,14 +69,11 @@ def write_string(string, buf):
 	buf.write(struct.pack(">h%ds" % (len(encoded),), len(encoded), encoded))
 
 def gunzip(data):
-	return gzip.GzipFile(fileobj=StringIO(data)).read()
+	return gzip.GzipFile(fileobj=BytesIO(data)).read()
 
 def try_gunzip(data):
-	try:
-		data = gunzip(data)
-	except IOError, zlib.error:
-		pass
-	return data
+    data = gunzip(data)
+    return data
 
 def _serialize(data, buf):
 	if isinstance(data, int):
@@ -132,7 +128,7 @@ def _unpack(tag_type, ctx):
 		(list_length,) = STRUCTS[3].unpack_from(ctx.data, ctx.offset)
 		ctx.offset += STRUCTS[3].size
 		returnval = [list_type]
-		for i in xrange(list_length):
+		for i in range(list_length):
 			tag = _unpack(list_type,ctx)
 			returnval.append(tag)
 	elif tag_type == 10:
@@ -143,7 +139,7 @@ def load_string(ctx):
 	data = ctx.data[ctx.offset:]
 	(string_len,) = struct.Struct(">H").unpack_from(data)
 
-	value = data[2:string_len + 2].tostring()
+	value = str(data[2:string_len + 2],encoding="utf-8")
 	ctx.offset += string_len + 2
 	return value
 
